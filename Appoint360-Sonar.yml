@@ -1,0 +1,84 @@
+trigger: none
+
+#pool:
+  #name: appoint360-dev-eu2-pool
+
+pool:
+   vmImage: ubuntu-latest
+  
+steps:
+- bash: sudo apt-get install zip unzip -f
+  displayName: Install Zip Tool
+- checkout: self
+  fetchDepth: 0
+
+- task: Bash@3
+  displayName: Download Build Wrapper
+  inputs:
+    targetType: inline
+    script: |
+      curl 'https://sonarcloud.io/static/cpp/build-wrapper-linux-x86.zip' --output build-wrapper.zip
+      unzip build-wrapper.zip
+
+- task: Bash@3
+  inputs:
+    targetType: inline
+    script: echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+    
+- task: UseDotNet@2
+  displayName: Use .NET
+  inputs:
+    packageType: 'sdk'
+    version: 6.x
+    
+- task: DotNetCoreCLI@2
+  displayName: Restore
+  inputs:
+    command: restore
+    projects: '$(RestoreBuildProjects)'
+
+- task: SonarCloudPrepare@2
+  inputs:
+    SonarCloud: 'Sonar-Service'
+    organization: 'appoint360'
+    scannerMode: 'MSBuild'
+    projectKey: 'Appoint360_Appoint360'
+    projectName: 'Appoint360'
+    extraProperties:  |
+      sonar.exclusions=**/obj/**,**/*.dll,**/Source Code/Services/**/*.cs,**/Source Code/Tests/**/*.cs,**/*.html
+      sonar.cs.opencover.reportsPaths=$(Agent.TempDirectory)/*/coverage.opencover.xml
+      sonar.projectBaseDir=$(Build.SourcesDirectory)
+      sonar.tests=**/Source Code/Tests/
+      sonar.cfamily.compile-commands=bw_output/compile_commands.json
+
+- task: DotNetCoreCLI@2
+  inputs:
+   command: 'build'
+   projects: |
+        **/*.csproj
+        !**/eMedAssist.Web.csproj
+
+   arguments: '--configuration $(buildConfiguration)'
+
+#- task: DotNetCoreCLI@2
+# displayName: 'Publish Unit Test'
+#  inputs:
+#    command: test
+#    projects: '**/Source Code/Tests/InsightCapture.WebAPI.Tests/InsightCapture.WebAPI.Tests.csproj'
+#    arguments: '--configuration $(buildConfiguration) --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura,opencover'
+#    publishTestResults: true
+#  retryCountOnTaskFailure: 3
+
+#- task: PublishTestResults@2
+ # displayName: "Publish Test Results"
+  #inputs:    
+   # testResultsFiles: '$(Agent.TempDirectory)/coverage.opencover.xml'            
+  #condition: succeededOrFailed()
+
+- task: SonarCloudAnalyze@2
+  inputs:
+    jdkversion: 'JAVA_HOME_17_X64'
+
+- task: SonarCloudPublish@2
+  inputs:
+    pollingTimeoutSec: '300'
